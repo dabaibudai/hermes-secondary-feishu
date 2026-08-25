@@ -2,6 +2,11 @@
 
 A native Hermes Agent platform plugin that adds a second Feishu/Lark bot as an independent chat entry.
 
+This repository is dual-purpose:
+
+- **Hermes plugin:** provides the actual second Feishu/Lark runtime channel;
+- **Agent Skill:** lets Codex, Claude Code, and other skill-aware agents install, configure, and verify the plugin for a user.
+
 It uses Hermes' built-in Feishu adapter, so the second bot gets the same experience as the primary bot:
 
 - immediate processing reaction;
@@ -26,6 +31,14 @@ The second app is used only for receiving and replying to chat messages. Hermes 
 hermes plugins install dabaibudai/hermes-secondary-feishu --enable
 hermes gateway restart
 ```
+
+## Install as an Agent Skill
+
+```bash
+npx skills add dabaibudai/hermes-secondary-feishu
+```
+
+Then ask your Agent to install or troubleshoot a second Feishu bot for Hermes. The Skill guides the operation; the Hermes plugin still provides the runtime capability.
 
 The installer prompts for:
 
