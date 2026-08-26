@@ -55,7 +55,18 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. The sec
    HERMES_SECONDARY_FEISHU_ALLOWED_USERS=ou_xxx
    ```
 
-8. Restart the gateway only after the credentials and developer-console checklist are complete, then verify with:
+8. Restart the gateway only after the credentials and developer-console checklist are complete.
+
+   The primary and secondary Feishu bots share the same Hermes Gateway. Restarting it briefly disconnects the primary bot that is currently guiding the installation; installing files or editing configuration alone does not cause this interruption. Before restarting:
+
+   - tell the user that Hermes1 will be offline for several seconds;
+   - record which installation steps are complete and that acceptance is the next stage;
+   - ask for explicit confirmation to restart;
+   - tell the user to send `继续验收` after Hermes1 reconnects.
+
+   When the user sends `继续验收`, do not repeat installation or request credentials again. Check the plugin and gateway status, then continue from **Acceptance**.
+
+   Verify with:
 
    ```bash
    hermes plugins list
