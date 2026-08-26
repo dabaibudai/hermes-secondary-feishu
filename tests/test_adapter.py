@@ -3,8 +3,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from gateway.config import PlatformConfig
-from gateway.platform_registry import PlatformEntry, platform_registry
+try:
+    from gateway.config import PlatformConfig
+    from gateway.platform_registry import PlatformEntry, platform_registry
+except ModuleNotFoundError as exc:
+    raise unittest.SkipTest("Hermes runtime is required for adapter tests") from exc
 
 from adapter import (
     PLATFORM_NAME,

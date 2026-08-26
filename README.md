@@ -45,6 +45,12 @@ The installer prompts for:
 - `HERMES_SECONDARY_FEISHU_APP_ID`
 - `HERMES_SECONDARY_FEISHU_APP_SECRET`
 
+When installation is initiated from an Agent chat, configure secrets from your own terminal instead of sending them in chat:
+
+```bash
+python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py
+```
+
 For a private bot, also set the allowed Feishu user Open IDs:
 
 ```dotenv

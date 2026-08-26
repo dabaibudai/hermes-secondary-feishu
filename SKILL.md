@@ -19,22 +19,43 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. The sec
 
 1. Confirm that `hermes plugins install --help` works. If it does not, explain that Hermes must be upgraded to a build with platform-plugin support.
 2. Check whether another bridge or process already consumes the same secondary Feishu App ID. Stop or migrate that process before enabling this plugin, otherwise one message may receive duplicate replies.
-3. Run:
+3. From a Hermes chat, install non-interactively so the command cannot hang on credential prompts:
 
    ```bash
-   hermes plugins install dabaibudai/hermes-secondary-feishu --enable
+   hermes plugins install dabaibudai/hermes-secondary-feishu --enable </dev/null
    ```
 
-4. Let the installer securely prompt for the secondary App ID and App Secret. Do not place either value in chat logs or shell history.
-5. In the Feishu developer console, confirm bot capability, long-connection event delivery, `im.message.receive_v1`, and the message/media permissions required by Hermes' built-in Feishu adapter.
-6. For a private bot, add the user's Open ID to the Hermes environment file returned by `hermes config env-path`:
+4. Never request the App Secret in chat. Ask the user to run this command in their own terminal; it hides the Secret and preserves the primary Feishu variables:
+
+   ```bash
+   python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py
+   ```
+
+   Stop and wait for the user to confirm that configuration was saved.
+5. Guide the user through this exact Feishu/Lark developer-console checklist:
+
+   - enable the **Bot** capability;
+   - grant `im:message`, `im:message:send`, and `im:resource` permissions;
+   - choose **long connection / WebSocket** event delivery;
+   - subscribe to `im.message.receive_v1`;
+   - for approval buttons and card interactions, enable **Interactive Card** and subscribe to `card.action.trigger`;
+   - publish a new app version and make it available to the intended user or tenant.
+
+   Stop and wait for the user to confirm each incomplete console item. Do not claim that the app is ready based only on local configuration.
+6. If the user left the allowlist blank, tell them to send any DM to the second bot. When it returns a pairing code, approve it with:
+
+   ```bash
+   hermes pairing approve feishu_secondary PAIRING_CODE
+   ```
+
+   Never guess a code. Run `hermes pairing list` if the user reports that no code appeared.
+7. If the user already knows their Feishu Open ID, they can instead set an allowlist in the Hermes environment file returned by `hermes config env-path`:
 
    ```dotenv
    HERMES_SECONDARY_FEISHU_ALLOWED_USERS=ou_xxx
    ```
 
-   Alternatively, leave the allowlist empty and use Hermes' normal DM pairing flow.
-7. Restart the gateway after receiving authorization, then verify with:
+8. Restart the gateway only after the credentials and developer-console checklist are complete, then verify with:
 
    ```bash
    hermes plugins list
@@ -43,7 +64,14 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. The sec
 
 ## Acceptance
 
-Send the second bot a small tool-using task. Success requires all of the following:
+Run these checks in order and report the first failing stage instead of continuing blindly:
+
+1. Send `你好`. Expect one immediate reaction and exactly one answer.
+2. Send `/new`. Expect confirmation that a fresh `feishu_secondary` session started.
+3. Ask it to read a harmless local text file. Expect visible commentary, tool progress, and one final answer rendered as Markdown or a rich card.
+4. Send one image. Expect Hermes to acknowledge or inspect the image without an unsupported-file error.
+
+Success requires all of the following:
 
 - the bot reacts immediately;
 - Markdown or rich-card output renders correctly;

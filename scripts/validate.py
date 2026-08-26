@@ -12,6 +12,7 @@ REQUIRED_FILES = {
     "__init__.py",
     "README.md",
     "LICENSE",
+    "scripts/configure.py",
 }
 
 
