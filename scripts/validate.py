@@ -25,12 +25,7 @@ if "name: hermes-secondary-feishu" not in manifest:
     raise SystemExit("plugin.yaml has an unexpected name")
 if "kind: platform" not in manifest:
     raise SystemExit("plugin.yaml kind must be platform")
-
-expected = {
-    "HERMES_SECONDARY_FEISHU_APP_ID",
-    "HERMES_SECONDARY_FEISHU_APP_SECRET",
-}
-if not all(name in manifest for name in expected):
-    raise SystemExit("plugin.yaml is missing required credential variables")
+if "version: 2.0.0" not in manifest:
+    raise SystemExit("plugin.yaml version must match the multi-bot release")
 
 print("PLUGIN_STATIC_VALIDATION_OK")

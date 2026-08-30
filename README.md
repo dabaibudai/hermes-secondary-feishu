@@ -1,13 +1,13 @@
 # Hermes Secondary Feishu
 
-A native Hermes Agent platform plugin that adds a second Feishu/Lark bot as an independent chat entry.
+A native Hermes Agent platform plugin that adds multiple Feishu/Lark bots as independent chat entries.
 
 This repository is dual-purpose:
 
 - **Hermes plugin:** provides the actual second Feishu/Lark runtime channel;
 - **Agent Skill:** lets Codex, Claude Code, and other skill-aware agents install, configure, and verify the plugin for a user.
 
-It uses Hermes' built-in Feishu adapter, so the second bot gets the same experience as the primary bot:
+It uses Hermes' built-in Feishu adapter, so every additional bot gets the same experience as the primary bot:
 
 - immediate processing reaction;
 - Markdown and rich message rendering;
@@ -16,12 +16,12 @@ It uses Hermes' built-in Feishu adapter, so the second bot gets the same experie
 - visible tool progress and long-task updates;
 - native `/new`, `/stop`, pairing, session storage, and interruption behavior.
 
-The second app is used only for receiving and replying to chat messages. Hermes still shares the same Agent identity, memory, skills, tools, working directory, model configuration, and primary Feishu credentials used by business tools.
+Each additional app is used only for receiving and replying to chat messages. Bots have independent session namespaces but share the same Agent identity, memory, skills, tools, working directory, model configuration, provider quota, and primary Feishu credentials used by business tools.
 
 ## Requirements
 
 - A recent Hermes Agent build with `hermes plugins` and platform plugin support.
-- One additional Feishu or Lark app with bot capability.
+- One unique Feishu or Lark app for every additional bot.
 - Long-connection event delivery enabled for `im.message.receive_v1`.
 - The same message and media permissions normally required by Hermes' built-in Feishu adapter.
 
@@ -29,6 +29,8 @@ The second app is used only for receiving and replying to chat messages. Hermes 
 
 ```bash
 hermes plugins install dabaibudai/hermes-secondary-feishu --enable
+python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2
+python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes3
 hermes gateway restart
 ```
 
@@ -40,39 +42,38 @@ npx skills add dabaibudai/hermes-secondary-feishu
 
 Then ask your Agent to install or troubleshoot a second Feishu bot for Hermes. The Skill guides the operation; the Hermes plugin still provides the runtime capability.
 
-The installer prompts for:
-
-- `HERMES_SECONDARY_FEISHU_APP_ID`
-- `HERMES_SECONDARY_FEISHU_APP_SECRET`
-
 When installation is initiated from an Agent chat, configure secrets from your own terminal instead of sending them in chat:
 
 ```bash
-python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py
+python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2
+python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes3
+python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --list
 ```
 
-For a private bot, also set the allowed Feishu user Open IDs:
+The script writes an instance list and separate credentials:
 
 ```dotenv
-HERMES_SECONDARY_FEISHU_ALLOWED_USERS=ou_xxx,ou_yyy
+HERMES_SECONDARY_FEISHU_BOTS=hermes2,hermes3
+HERMES_SECONDARY_FEISHU_HERMES2_APP_ID=cli_xxx
+HERMES_SECONDARY_FEISHU_HERMES3_APP_ID=cli_yyy
 ```
 
-Add optional variables to the Hermes environment file shown by:
+App Secrets are stored beside these variables but are never printed. Version 1 singular `HERMES_SECONDARY_FEISHU_*` variables remain supported as Hermes2 for backward compatibility.
+
+Remove one bot with:
 
 ```bash
-hermes config env-path
+python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --remove hermes3
 ```
-
-Alternatively, leave the allowlist empty and use Hermes' normal DM pairing flow.
 
 ## Optional settings
 
 ```dotenv
-HERMES_SECONDARY_FEISHU_DOMAIN=feishu
-HERMES_SECONDARY_FEISHU_CONNECTION_MODE=websocket
-HERMES_SECONDARY_FEISHU_REQUIRE_MENTION=true
-HERMES_SECONDARY_FEISHU_GROUP_POLICY=allowlist
-HERMES_SECONDARY_FEISHU_ALLOW_ALL_USERS=false
+HERMES_SECONDARY_FEISHU_HERMES3_DOMAIN=feishu
+HERMES_SECONDARY_FEISHU_HERMES3_CONNECTION_MODE=websocket
+HERMES_SECONDARY_FEISHU_HERMES3_REQUIRE_MENTION=true
+HERMES_SECONDARY_FEISHU_HERMES3_GROUP_POLICY=allowlist
+HERMES_SECONDARY_FEISHU_HERMES3_ALLOW_ALL_USERS=false
 ```
 
 Use `lark` instead of `feishu` for international Lark tenants.
@@ -93,12 +94,12 @@ You should see a reaction, a short stage message, tool progress, and the final a
 ## Architecture
 
 ```text
-Secondary Feishu App
-        ↓
-feishu_secondary platform plugin
-        ↓
-Hermes Gateway → same Agent / memory / skills / tools
-        ↓
+Feishu Apps: Hermes2 / Hermes3 / Hermes4
+                  ↓
+Platforms: feishu_secondary / feishu_hermes3 / feishu_hermes4
+                  ↓
+Hermes Gateway → independent sessions, shared Agent / memory / skills / tools
+                  ↓
 Primary Feishu credentials remain available to Feishu business tools
 ```
 

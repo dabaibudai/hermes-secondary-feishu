@@ -1,16 +1,17 @@
 ---
 name: hermes-secondary-feishu-installer
-description: Install, configure, verify, or troubleshoot the Hermes Secondary Feishu plugin when a user wants a second Feishu/Lark bot to share the same Hermes memory, skills, tools, and model while keeping primary Feishu business credentials unchanged.
+description: Install, configure, verify, or troubleshoot one or more secondary Feishu/Lark chat bots for Hermes while sharing the same memory, skills, tools, model, and primary Feishu business credentials.
 ---
 
 # Hermes Secondary Feishu Installer
 
-Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. The second Feishu/Lark app is only a chat transport; Hermes continues to share the existing Agent identity, sessions, memory, skills, tools, working directory, and model configuration.
+Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2, Hermes3, and later bots are independent chat entries and session namespaces. They share the existing Agent identity, memory, skills, tools, working directory, model configuration, and provider quota.
 
 ## Invariants
 
 - Never replace or delete the primary `FEISHU_APP_ID` or `FEISHU_APP_SECRET`.
-- Store the second app only in `HERMES_SECONDARY_FEISHU_APP_ID` and `HERMES_SECONDARY_FEISHU_APP_SECRET`.
+- Give every bot a unique Feishu/Lark App ID. Reusing one App ID across connections causes conflicts or duplicate replies.
+- Store credentials only in bot-specific `HERMES_SECONDARY_FEISHU_<BOT>_*` variables created by the configuration script.
 - Do not patch Hermes core files. This repository is a native Hermes platform plugin.
 - Ask before restarting a live gateway if it may interrupt active work.
 - Never print or commit App Secrets.
@@ -18,21 +19,22 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. The sec
 ## Install
 
 1. Confirm that `hermes plugins install --help` works. If it does not, explain that Hermes must be upgraded to a build with platform-plugin support.
-2. Check whether another bridge or process already consumes the same secondary Feishu App ID. Stop or migrate that process before enabling this plugin, otherwise one message may receive duplicate replies.
+2. Ask how many chat entries the user wants and choose stable names such as `hermes2`, `hermes3`, and `hermes4`. Check whether another bridge or process already consumes any intended App ID. Stop or migrate that process before enabling this plugin.
 3. From a Hermes chat, install non-interactively so the command cannot hang on credential prompts:
 
    ```bash
    hermes plugins install dabaibudai/hermes-secondary-feishu --enable </dev/null
    ```
 
-4. Never request the App Secret in chat. Ask the user to run this command in their own terminal; it hides the Secret and preserves the primary Feishu variables:
+4. Never request an App Secret in chat. For each bot, ask the user to run this command in their own terminal; it hides the Secret and preserves the primary Feishu variables:
 
    ```bash
-   python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py
+   python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2
+   python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes3
    ```
 
-   Stop and wait for the user to confirm that configuration was saved.
-5. Guide the user through this exact Feishu/Lark developer-console checklist:
+   Use only the names the user requested. Run `python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --list` to verify that every bot reports `credentials=ready`. Configure all bots before restarting the Gateway.
+5. Guide the user through this exact Feishu/Lark developer-console checklist for **every app**:
 
    - enable the **Bot** capability;
    - grant `im:message`, `im:message:send`, and `im:resource` permissions;
@@ -42,22 +44,19 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. The sec
    - publish a new app version and make it available to the intended user or tenant.
 
    Stop and wait for the user to confirm each incomplete console item. Do not claim that the app is ready based only on local configuration.
-6. If the user left the allowlist blank, tell them to send any DM to the second bot. When it returns a pairing code, approve it with:
+6. If the user left an allowlist blank, tell them to send a DM to that bot. When it returns a pairing code, approve it with the platform printed by the configuration script:
 
    ```bash
    hermes pairing approve feishu_secondary PAIRING_CODE
+   hermes pairing approve feishu_hermes3 PAIRING_CODE
    ```
 
    Never guess a code. Run `hermes pairing list` if the user reports that no code appeared.
-7. If the user already knows their Feishu Open ID, they can instead set an allowlist in the Hermes environment file returned by `hermes config env-path`:
-
-   ```dotenv
-   HERMES_SECONDARY_FEISHU_ALLOWED_USERS=ou_xxx
-   ```
+7. If the user already knows their Feishu Open ID, the configuration script can store the allowlist separately for each bot. Do not use the primary `FEISHU_ALLOWED_USERS` variable for secondary bots.
 
 8. Restart the gateway only after the credentials and developer-console checklist are complete.
 
-   The primary and secondary Feishu bots share the same Hermes Gateway. Restarting it briefly disconnects the primary bot that is currently guiding the installation; installing files or editing configuration alone does not cause this interruption. Before restarting:
+   All Feishu bots share the same Hermes Gateway. Restarting it briefly disconnects every bot, including the primary bot currently guiding installation; installing files or editing configuration alone does not cause this interruption. Before restarting:
 
    - tell the user that Hermes1 will be offline for several seconds;
    - record which installation steps are complete and that acceptance is the next stage;
@@ -75,10 +74,10 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. The sec
 
 ## Acceptance
 
-Run these checks in order and report the first failing stage instead of continuing blindly:
+Run these checks for every configured bot. Report the first failing bot and stage instead of continuing blindly:
 
 1. Send `你好`. Expect one immediate reaction and exactly one answer.
-2. Send `/new`. Expect confirmation that a fresh `feishu_secondary` session started.
+2. Send `/new`. Expect a fresh session under that bot's platform (`feishu_secondary` for Hermes2, `feishu_hermes3` for Hermes3, and so on).
 3. Ask it to read a harmless local text file. Expect visible commentary, tool progress, and one final answer rendered as Markdown or a rich card.
 4. Send one image. Expect Hermes to acknowledge or inspect the image without an unsupported-file error.
 
@@ -92,3 +91,12 @@ Success requires all of the following:
 - the primary Feishu app remains available to Hermes business tools.
 
 If loading fails, inspect the gateway logs first. If replies are duplicated, check for an older external bridge or another gateway using the same App ID before changing plugin code.
+
+## Operational Blind Spots
+
+- More bots create more conversations, not separate Agents. Memory, tools, model, provider quota, filesystem, and Gateway availability are shared.
+- Concurrent chats can edit the same files or operate the same external account. Ask before destructive or conflicting work; separate working directories when tasks may collide.
+- Every bot expands the access surface. Use separate allowlists or pairing grants and review them when a bot changes owners.
+- Cron results and cross-platform notifications do not automatically fan out to every bot. Set the intended home channel explicitly with `/set-home`.
+- One Gateway restart interrupts all bots. Configure or update several bots together, then restart once.
+- One broken App should be diagnosed by its platform name and App ID without printing secrets. Do not disable healthy bots unless shared Gateway startup itself fails.
