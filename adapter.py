@@ -357,6 +357,8 @@ def register(ctx) -> None:
             platform_hint=(
                 f"You are chatting through the secondary Feishu/Lark bot "
                 f"'{spec.alias}'. Markdown, images, files, message editing, "
-                "and progress updates are supported."
+                "and progress updates are supported. This bot is chat-only by "
+                "default; do not suggest /sethome unless the user explicitly "
+                "wants cron results delivered here."
             ),
         )
