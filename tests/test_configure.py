@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -76,6 +79,38 @@ class ConfigureTest(unittest.TestCase):
     def test_platform_names_preserve_hermes2_compatibility(self):
         self.assertEqual(platform_name_for("hermes2"), "feishu_secondary")
         self.assertEqual(platform_name_for("hermes5"), "feishu_hermes5")
+
+    def test_noninteractive_secret_from_stdin(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            script = Path(__file__).parents[1] / "scripts" / "configure.py"
+            env = dict(os.environ, HERMES_HOME=temp_dir, PATH="")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "--name",
+                    "hermes2",
+                    "--app-id",
+                    "cli_test",
+                    "--domain",
+                    "feishu",
+                    "--allowed-users",
+                    "",
+                    "--secret-stdin",
+                ],
+                input="secret-from-chat\n",
+                text=True,
+                capture_output=True,
+                env=env,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            values = read_env_file(Path(temp_dir) / ".env")
+            self.assertEqual(
+                values["HERMES_SECONDARY_FEISHU_HERMES2_APP_SECRET"],
+                "secret-from-chat",
+            )
+            self.assertNotIn("secret-from-chat", result.stdout)
 
 
 if __name__ == "__main__":

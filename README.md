@@ -42,7 +42,15 @@ npx skills add dabaibudai/hermes-secondary-feishu
 
 Then ask your Agent to install or troubleshoot a second Feishu bot for Hermes. The Skill guides the operation; the Hermes plugin still provides the runtime capability.
 
-When installation is initiated from an Agent chat, configure secrets from your own terminal instead of sending them in chat:
+For a remote Hermes host, the installer Skill can accept the Secret once in a private chat and pass it to the configuration process over stdin. The Secret is not placed in shell arguments or echoed by the script, but the original Feishu message remains in chat history; delete that message and start `/new` after configuration. Never send a Secret in a group chat.
+
+The corresponding non-interactive command is:
+
+```bash
+python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2 --app-id cli_xxx --domain feishu --allowed-users '' --secret-stdin
+```
+
+For the strongest secrecy, use the hidden terminal prompt instead:
 
 ```bash
 python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2

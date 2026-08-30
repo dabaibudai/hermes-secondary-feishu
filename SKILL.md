@@ -14,7 +14,7 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2
 - Store credentials only in bot-specific `HERMES_SECONDARY_FEISHU_<BOT>_*` variables created by the configuration script.
 - Do not patch Hermes core files. This repository is a native Hermes platform plugin.
 - Ask before restarting a live gateway if it may interrupt active work.
-- Never print or commit App Secrets.
+- Never print, echo, quote, summarize, or commit App Secrets.
 
 ## Install
 
@@ -26,11 +26,20 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2
    hermes plugins install dabaibudai/hermes-secondary-feishu --enable </dev/null
    ```
 
-4. Never request an App Secret in chat. For each bot, ask the user to run this command in their own terminal; it hides the Secret and preserves the primary Feishu variables:
+4. When Hermes is running on a remote machine, allow the user to submit the App ID and App Secret once in the **private chat with the primary Hermes bot**. Before they send it, warn that Feishu retains chat history and tell them not to use a group chat. Never repeat the Secret in a reply, progress message, command argument, or tool summary.
+
+   Start the configuration command with the non-secret fields only:
+
+   ```bash
+   python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2 --app-id cli_xxx --domain feishu --allowed-users '' --secret-stdin
+   ```
+
+   Send the Secret only to that running process through stdin. Do not place it after `echo`, in an environment assignment, in a temporary file, or directly in the shell command. After saving, report only `credentials=ready`, ask the user to delete their Secret message from Feishu, and recommend `/new` before continuing.
+
+   If the user does not accept chat-history exposure, fall back to the hidden terminal flow:
 
    ```bash
    python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2
-   python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes3
    ```
 
    Use only the names the user requested. Run `python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --list` to verify that every bot reports `credentials=ready`. Configure all bots before restarting the Gateway.

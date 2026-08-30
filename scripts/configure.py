@@ -8,6 +8,7 @@ import getpass
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -199,7 +200,14 @@ def remove_bot(env_path: Path, alias: str) -> int:
     return 0
 
 
-def configure_bot(env_path: Path, requested_alias: str | None = None) -> int:
+def configure_bot(
+    env_path: Path,
+    requested_alias: str | None = None,
+    requested_app_id: str | None = None,
+    secret_from_stdin: bool = False,
+    requested_domain: str | None = None,
+    requested_allowed_users: str | None = None,
+) -> int:
     values = read_env_file(env_path)
     aliases = configured_aliases(values)
     if aliases:
@@ -214,8 +222,11 @@ def configure_bot(env_path: Path, requested_alias: str | None = None) -> int:
         print(str(exc))
         return 1
 
-    app_id = input("Secondary Feishu/Lark App ID: ").strip()
-    app_secret = getpass.getpass("Secondary App Secret (hidden): ").strip()
+    app_id = (requested_app_id or input("Secondary Feishu/Lark App ID: ")).strip()
+    if secret_from_stdin:
+        app_secret = sys.stdin.readline().strip()
+    else:
+        app_secret = getpass.getpass("Secondary App Secret (hidden): ").strip()
     if not app_id or not app_secret:
         print("App ID and App Secret are required; nothing was changed.")
         return 1
@@ -238,12 +249,18 @@ def configure_bot(env_path: Path, requested_alias: str | None = None) -> int:
             )
             return 1
 
-    domain = input("Tenant [feishu/lark] (default: feishu): ").strip().lower()
+    domain = (
+        requested_domain
+        if requested_domain is not None
+        else input("Tenant [feishu/lark] (default: feishu): ")
+    ).strip().lower()
     if domain not in {"", "feishu", "lark"}:
         print("Tenant must be 'feishu' or 'lark'; nothing was changed.")
         return 1
-    allowed_users = input(
-        "Allowed user Open IDs, comma-separated (blank = use pairing): "
+    allowed_users = (
+        requested_allowed_users
+        if requested_allowed_users is not None
+        else input("Allowed user Open IDs, comma-separated (blank = use pairing): ")
     ).strip()
 
     if alias not in aliases:
@@ -261,6 +278,17 @@ def configure_bot(env_path: Path, requested_alias: str | None = None) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", help="Bot name to add or update, e.g. hermes3")
+    parser.add_argument("--app-id", help="Secondary Feishu/Lark App ID")
+    parser.add_argument(
+        "--secret-stdin",
+        action="store_true",
+        help="Read the App Secret from one stdin line without echoing it",
+    )
+    parser.add_argument("--domain", choices=("feishu", "lark"))
+    parser.add_argument(
+        "--allowed-users",
+        help="Comma-separated Open IDs; use an empty value to require pairing",
+    )
     parser.add_argument("--list", action="store_true", help="List configured bots")
     parser.add_argument("--remove", metavar="NAME", help="Remove one bot configuration")
     args = parser.parse_args()
@@ -270,7 +298,14 @@ def main() -> int:
         return list_bots(env_path)
     if args.remove:
         return remove_bot(env_path, args.remove)
-    return configure_bot(env_path, args.name)
+    return configure_bot(
+        env_path,
+        args.name,
+        args.app_id,
+        args.secret_stdin,
+        args.domain,
+        args.allowed_users,
+    )
 
 
 if __name__ == "__main__":
