@@ -18,7 +18,7 @@ It uses Hermes' built-in Feishu adapter, so every additional bot gets the same e
 
 Each additional app is used only for receiving and replying to chat messages. Bots have independent session namespaces but share the same Agent identity, memory, skills, tools, working directory, model configuration, provider quota, and primary Feishu credentials used by business tools.
 
-Hermes may show a one-time `No home channel is set` notice in a new secondary chat. Ignore it: secondary bots are chat-only by default, while cron and cross-platform delivery remain on the primary bot. Use `/sethome` in a secondary chat only when that routing change is intentional.
+The plugin suppresses Hermes' generic `No home channel is set` notice in secondary chats. Secondary bots are chat-only by default, while cron and cross-platform delivery remain on the primary bot. Use `/sethome` in a secondary chat only when that routing change is intentional.
 
 ## Requirements
 

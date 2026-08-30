@@ -109,6 +109,44 @@ def _install_multi_client_ws_patch() -> None:
         feishu_module._run_official_feishu_ws_client = _run_isolated_feishu_ws_client
         feishu_module._secondary_multi_client_patch = True
 
+
+def _is_secondary_home_notice(
+    platform_name: str, content: str, secondary_platforms: set[str]
+) -> bool:
+    return (
+        platform_name in secondary_platforms
+        and content.startswith("📬 No home channel is set for ")
+    )
+
+
+def _install_secondary_notice_filter(secondary_platforms: set[str]) -> None:
+    """Suppress only the irrelevant home-channel onboarding notice."""
+    from gateway.run import GatewayRunner
+
+    configured = getattr(
+        GatewayRunner, "_secondary_chat_only_platforms", set()
+    )
+    configured.update(secondary_platforms)
+    GatewayRunner._secondary_chat_only_platforms = configured
+
+    if getattr(GatewayRunner, "_secondary_home_notice_filter", False):
+        return
+
+    original = GatewayRunner._deliver_platform_notice
+
+    async def deliver_platform_notice(runner, source, content: str) -> None:
+        platform = getattr(getattr(source, "platform", None), "value", "")
+        platforms = getattr(runner, "_secondary_chat_only_platforms", set())
+        if _is_secondary_home_notice(platform, content, platforms):
+            logger.info(
+                "Suppressed chat-only home-channel notice for %s", platform
+            )
+            return
+        await original(runner, source, content)
+
+    GatewayRunner._deliver_platform_notice = deliver_platform_notice
+    GatewayRunner._secondary_home_notice_filter = True
+
 BOTS_ENV = "HERMES_SECONDARY_FEISHU_BOTS"
 PLATFORM_NAME = "feishu_secondary"
 APP_ID_ENV = "HERMES_SECONDARY_FEISHU_APP_ID"
@@ -317,10 +355,12 @@ def is_connected(config: PlatformConfig, spec: BotSpec | None = None) -> bool:
 
 def register(ctx) -> None:
     _install_multi_client_ws_patch()
+    specs = load_bot_specs()
+    _install_secondary_notice_filter({spec.platform_name for spec in specs})
     configured_app_ids: set[str] = set()
     primary_app_id = os.getenv("FEISHU_APP_ID", "").strip()
 
-    for spec in load_bot_specs():
+    for spec in specs:
         app_id, _ = spec.credentials()
         if app_id and app_id == primary_app_id:
             logger.error(

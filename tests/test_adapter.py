@@ -26,6 +26,7 @@ from adapter import (
     _install_multi_client_ws_patch,
     _run_isolated_feishu_ws_client,
     _THREAD_LOCAL_LOOP,
+    _is_secondary_home_notice,
 )
 
 
@@ -54,6 +55,19 @@ class FakeContext:
 
 
 class SecondaryFeishuAdapterTest(unittest.TestCase):
+    def test_suppresses_only_secondary_home_notice(self):
+        platforms = {"feishu_secondary", "feishu_baymax"}
+        notice = "📬 No home channel is set for Feishu_Baymax."
+        self.assertTrue(
+            _is_secondary_home_notice("feishu_baymax", notice, platforms)
+        )
+        self.assertFalse(_is_secondary_home_notice("feishu", notice, platforms))
+        self.assertFalse(
+            _is_secondary_home_notice(
+                "feishu_baymax", "Pairing approval required", platforms
+            )
+        )
+
     def test_installs_thread_isolated_lark_runtime(self):
         _install_multi_client_ws_patch()
         self.assertIs(

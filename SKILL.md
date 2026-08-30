@@ -53,7 +53,7 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2
    ```
 
    Never guess a code. Run `hermes pairing list` if the user reports that no code appeared.
-   On that first DM, Hermes may also send `No home channel is set`. This is a generic Hermes onboarding notice, not an error and not a required setup step. Secondary bots are chat-only by default: tell the user to ignore the notice and do not run `/sethome` unless they explicitly want cron results delivered to that secondary chat.
+   The plugin suppresses Hermes' generic `No home channel is set` onboarding notice for secondary bots because they are chat-only by default. Do not run `/sethome` unless the user explicitly wants cron results delivered to that secondary chat.
 7. If the user already knows their Feishu Open ID, the configuration script can store the allowlist separately for each bot. Do not use the primary `FEISHU_ALLOWED_USERS` variable for secondary bots.
 
 8. Restart the gateway only after the credentials and developer-console checklist are complete.
@@ -107,6 +107,6 @@ If loading fails, inspect the gateway logs first. If replies are duplicated, che
 - More bots create more conversations, not separate Agents. Memory, tools, model, provider quota, filesystem, and Gateway availability are shared.
 - Concurrent chats can edit the same files or operate the same external account. Ask before destructive or conflicting work; separate working directories when tasks may collide.
 - Every bot expands the access surface. Use separate allowlists or pairing grants and review them when a bot changes owners.
-- Secondary bots are chat-only by default. Ignore their one-time `No home channel is set` notice; keep cron and cross-platform delivery on the primary bot unless the user explicitly requests otherwise.
+- Secondary bots are chat-only by default. Their generic home-channel onboarding notice is suppressed; keep cron and cross-platform delivery on the primary bot unless the user explicitly requests otherwise.
 - One Gateway restart interrupts all bots. Configure or update several bots together, then restart once.
 - One broken App should be diagnosed by its platform name and App ID without printing secrets. Do not disable healthy bots unless shared Gateway startup itself fails.
