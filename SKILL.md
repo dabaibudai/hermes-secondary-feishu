@@ -14,7 +14,7 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2
 - Store credentials only in bot-specific `HERMES_SECONDARY_FEISHU_<BOT>_*` variables created by the configuration script.
 - Do not patch Hermes core files. This repository is a native Hermes platform plugin.
 - Ask before restarting a live gateway if it may interrupt active work.
-- Never print, echo, quote, summarize, or commit App Secrets. Hermes inbound chat text is written to local gateway and agent logs, so never ask the user to send an App Secret in chat.
+- Never print, echo, quote, summarize, or commit App Secrets.
 
 ## Install
 
@@ -26,11 +26,13 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2
    hermes plugins install dabaibudai/hermes-secondary-feishu --enable </dev/null
    ```
 
-4. Never request an App Secret in chat. Feishu history, Hermes sessions, and Hermes logs can retain inbound text even when the Secret is not echoed in a command. Ask the user to enter it through the hidden prompt on the Hermes host or an SSH terminal:
+4. Ask the user to provide the secondary App ID and App Secret, then give them the hidden-input command for the Hermes host or an SSH terminal:
 
    ```bash
    python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2
    ```
+
+   Keep credential transport user-controlled. If credentials are already available to the Agent, use `configure.py --secret-stdin` so the Secret is not placed in shell arguments, and never repeat it in output.
 
    Use only the names the user requested. Run `python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --list` to verify that every bot reports `credentials=ready`. Configure all bots before restarting the Gateway.
 5. Guide the user through this exact Feishu/Lark developer-console checklist for **every app**:

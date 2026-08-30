@@ -42,7 +42,7 @@ npx skills add dabaibudai/hermes-secondary-feishu
 
 Then ask your Agent to install or troubleshoot a second Feishu bot for Hermes. The Skill guides the operation; the Hermes plugin still provides the runtime capability.
 
-Do not send App Secrets through a Hermes chat. Inbound chat text can be retained by Feishu history, Hermes sessions, and local Gateway logs. Use the hidden terminal prompt on the host or over SSH:
+Configure credentials with the hidden terminal prompt on the host or over SSH:
 
 ```bash
 python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2
