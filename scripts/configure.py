@@ -52,6 +52,16 @@ def env_prefix_for(alias: str) -> str:
     return f"HERMES_SECONDARY_FEISHU_{alias.upper().replace('-', '_')}"
 
 
+def validate_model_route(provider: str, model: str) -> tuple[str, str]:
+    provider = provider.strip()
+    model = model.strip()
+    if not provider or not model:
+        raise ValueError("Both provider and model IDs are required")
+    if any(char.isspace() for char in provider + model):
+        raise ValueError("Provider and model IDs cannot contain whitespace")
+    return provider, model
+
+
 def default_env_path() -> Path:
     try:
         result = subprocess.run(
@@ -148,15 +158,28 @@ def configured_aliases(values: dict[str, str]) -> list[str]:
     return aliases
 
 
-def bot_values(alias: str, app_id: str, app_secret: str, domain: str, allowed: str) -> dict[str, str]:
+def bot_values(
+    alias: str,
+    app_id: str,
+    app_secret: str,
+    domain: str,
+    allowed: str,
+    provider: str = "",
+    model: str = "",
+) -> dict[str, str]:
     prefix = env_prefix_for(alias)
-    return {
+    values = {
         f"{prefix}_APP_ID": app_id,
         f"{prefix}_APP_SECRET": app_secret,
         f"{prefix}_DOMAIN": domain,
         f"{prefix}_CONNECTION_MODE": "websocket",
         f"{prefix}_ALLOWED_USERS": allowed,
     }
+    if provider or model:
+        provider, model = validate_model_route(provider, model)
+        values[f"{prefix}_PROVIDER"] = provider
+        values[f"{prefix}_MODEL"] = model
+    return values
 
 
 def list_bots(env_path: Path) -> int:
@@ -174,9 +197,12 @@ def list_bots(env_path: Path) -> int:
                 or (alias == "hermes2" and values.get(LEGACY_APP_SECRET_KEY))
             )
         )
+        provider = values.get(f"{prefix}_PROVIDER", "")
+        model = values.get(f"{prefix}_MODEL", "")
+        route = f"{provider}/{model}" if provider and model else "shared-default"
         print(
             f"{alias}: platform={platform_name_for(alias)}, "
-            f"credentials={'ready' if configured else 'missing'}"
+            f"credentials={'ready' if configured else 'missing'}, model={route}"
         )
     return 0
 
@@ -200,6 +226,51 @@ def remove_bot(env_path: Path, alias: str) -> int:
     return 0
 
 
+def set_bot_model(
+    env_path: Path,
+    alias: str,
+    provider: str,
+    model: str,
+) -> int:
+    alias = normalize_alias(alias)
+    values = read_env_file(env_path)
+    if alias not in configured_aliases(values):
+        print(f"Bot '{alias}' is not configured; nothing was changed.")
+        return 1
+    try:
+        provider, model = validate_model_route(provider, model)
+    except ValueError as exc:
+        print(f"{exc}; nothing was changed.")
+        return 1
+    prefix = env_prefix_for(alias)
+    update_env_file(
+        env_path,
+        {
+            f"{prefix}_PROVIDER": provider,
+            f"{prefix}_MODEL": model,
+        },
+    )
+    print(f"Saved model route for '{alias}': {provider}/{model}")
+    print("Restart Hermes Gateway to apply the change.")
+    return 0
+
+
+def clear_bot_model(env_path: Path, alias: str) -> int:
+    alias = normalize_alias(alias)
+    values = read_env_file(env_path)
+    if alias not in configured_aliases(values):
+        print(f"Bot '{alias}' is not configured; nothing was changed.")
+        return 1
+    prefix = env_prefix_for(alias)
+    remove_env_keys(
+        env_path,
+        {f"{prefix}_PROVIDER", f"{prefix}_MODEL"},
+    )
+    print(f"Cleared model route for '{alias}'; it will use the shared default.")
+    print("Restart Hermes Gateway to apply the change.")
+    return 0
+
+
 def configure_bot(
     env_path: Path,
     requested_alias: str | None = None,
@@ -207,6 +278,8 @@ def configure_bot(
     secret_from_stdin: bool = False,
     requested_domain: str | None = None,
     requested_allowed_users: str | None = None,
+    requested_provider: str | None = None,
+    requested_model: str | None = None,
 ) -> int:
     values = read_env_file(env_path)
     aliases = configured_aliases(values)
@@ -263,10 +336,29 @@ def configure_bot(
         else input("Allowed user Open IDs, comma-separated (blank = use pairing): ")
     ).strip()
 
+    provider = (requested_provider or "").strip()
+    model = (requested_model or "").strip()
+    if provider or model:
+        try:
+            provider, model = validate_model_route(provider, model)
+        except ValueError as exc:
+            print(f"{exc}; nothing was changed.")
+            return 1
+
     if alias not in aliases:
         aliases.append(alias)
     updates = {BOTS_KEY: ",".join(aliases)}
-    updates.update(bot_values(alias, app_id, app_secret, domain or "feishu", allowed_users))
+    updates.update(
+        bot_values(
+            alias,
+            app_id,
+            app_secret,
+            domain or "feishu",
+            allowed_users,
+            provider,
+            model,
+        )
+    )
     update_env_file(env_path, updates)
 
     print(f"Saved '{alias}' securely to {env_path}")
@@ -291,6 +383,18 @@ def main() -> int:
     )
     parser.add_argument("--list", action="store_true", help="List configured bots")
     parser.add_argument("--remove", metavar="NAME", help="Remove one bot configuration")
+    parser.add_argument(
+        "--set-model",
+        metavar="NAME",
+        help="Persist a provider/model route for one configured bot",
+    )
+    parser.add_argument(
+        "--clear-model",
+        metavar="NAME",
+        help="Return one configured bot to Hermes' shared default model",
+    )
+    parser.add_argument("--provider", help="Hermes provider ID for this bot")
+    parser.add_argument("--model", help="Exact API model ID for this bot")
     args = parser.parse_args()
 
     env_path = default_env_path()
@@ -298,6 +402,15 @@ def main() -> int:
         return list_bots(env_path)
     if args.remove:
         return remove_bot(env_path, args.remove)
+    if args.set_model:
+        return set_bot_model(
+            env_path,
+            args.set_model,
+            args.provider or "",
+            args.model or "",
+        )
+    if args.clear_model:
+        return clear_bot_model(env_path, args.clear_model)
     return configure_bot(
         env_path,
         args.name,
@@ -305,6 +418,8 @@ def main() -> int:
         args.secret_stdin,
         args.domain,
         args.allowed_users,
+        args.provider,
+        args.model,
     )
 
 

@@ -8,6 +8,7 @@ import os
 import re
 import threading
 from dataclasses import dataclass, replace
+from typing import Any
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.feishu import (
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 _WS_RUNTIME_LOCK = threading.Lock()
 _WS_THREAD_STATE = threading.local()
 _ORIGINAL_WS_CONNECT = None
+_COMMAND_ESCAPE_RE = re.compile(r"\\([\\`*_{}\[\]()#+\-!|>~])")
 
 
 class _ThreadLocalLoopProxy:
@@ -147,6 +149,153 @@ def _install_secondary_notice_filter(secondary_platforms: set[str]) -> None:
     GatewayRunner._deliver_platform_notice = deliver_platform_notice
     GatewayRunner._secondary_home_notice_filter = True
 
+
+@dataclass(frozen=True)
+class ModelRoute:
+    """Persistent default model for one secondary platform."""
+
+    provider: str
+    model: str
+
+
+def _source_platform(source: Any, session_key: str | None = None) -> str:
+    platform = getattr(getattr(source, "platform", None), "value", "")
+    if platform:
+        return str(platform)
+    if session_key:
+        parts = session_key.split(":")
+        if len(parts) >= 3:
+            return parts[2]
+    return ""
+
+
+def _normalize_command_text(text: str) -> str:
+    """Undo Feishu rich-post Markdown escaping for slash commands only."""
+    if not text.lstrip().startswith("/"):
+        return text
+    return _COMMAND_ESCAPE_RE.sub(r"\1", text)
+
+
+def _route_runtime(route: ModelRoute, fallback: dict | None = None) -> dict:
+    """Resolve a route through Hermes' provider registry without exposing keys."""
+    from hermes_cli.runtime_provider import resolve_runtime_provider
+
+    resolved = resolve_runtime_provider(
+        requested=route.provider,
+        target_model=route.model,
+    )
+    runtime = dict(fallback or {})
+    for key in ("provider", "api_key", "base_url", "api_mode", "credential_pool"):
+        value = resolved.get(key)
+        if value is not None:
+            runtime[key] = value
+    return runtime
+
+
+def _format_route_info(route: ModelRoute) -> str:
+    from agent.model_metadata import DEFAULT_FALLBACK_CONTEXT, get_model_context_length
+
+    runtime = _route_runtime(route)
+    context_length = get_model_context_length(
+        route.model,
+        base_url=runtime.get("base_url") or "",
+        api_key=runtime.get("api_key") or "",
+        provider=runtime.get("provider") or route.provider,
+    )
+    if context_length >= 1_000_000:
+        context_display = f"{context_length / 1_000_000:.1f}M"
+    elif context_length >= 1_000:
+        context_display = f"{context_length // 1_000}K"
+    else:
+        context_display = str(context_length)
+    source = "default" if context_length == DEFAULT_FALLBACK_CONTEXT else "detected"
+    return "\n".join(
+        (
+            f"◆ Model: `{route.model}`",
+            f"◆ Provider: {runtime.get('provider') or route.provider}",
+            f"◆ Context: {context_display} tokens ({source})",
+        )
+    )
+
+
+def _install_model_router(routes: dict[str, ModelRoute]) -> None:
+    """Route secondary platforms without changing Hermes' global model."""
+    if not routes:
+        return
+
+    from gateway.platforms.base import EphemeralReply
+    from gateway.run import GatewayRunner
+
+    configured = dict(getattr(GatewayRunner, "_secondary_model_routes", {}))
+    configured.update(routes)
+    GatewayRunner._secondary_model_routes = configured
+
+    if getattr(GatewayRunner, "_secondary_model_router_installed", False):
+        return
+
+    original_resolve = GatewayRunner._resolve_session_agent_runtime
+    original_reset = GatewayRunner._handle_reset_command
+
+    def resolve_session_agent_runtime(
+        runner,
+        *,
+        source=None,
+        session_key=None,
+        user_config=None,
+    ):
+        model, runtime = original_resolve(
+            runner,
+            source=source,
+            session_key=session_key,
+            user_config=user_config,
+        )
+        resolved_key = session_key
+        if not resolved_key and source is not None:
+            resolved_key = runner._session_key_for_source(source)
+
+        # A user's explicit /model switch wins until the next /new.
+        overrides = getattr(runner, "_session_model_overrides", {})
+        if resolved_key and resolved_key in overrides:
+            return model, runtime
+
+        platform = _source_platform(source, resolved_key)
+        route = getattr(runner, "_secondary_model_routes", {}).get(platform)
+        if route is None:
+            return model, runtime
+
+        routed_runtime = _route_runtime(route, runtime)
+        logger.info(
+            "Secondary model route selected: platform=%s provider=%s model=%s session=%s",
+            platform,
+            routed_runtime.get("provider") or route.provider,
+            route.model,
+            resolved_key or "",
+        )
+        return route.model, routed_runtime
+
+    async def handle_reset_command(runner, event):
+        reply = await original_reset(runner, event)
+        source = event.source
+        platform = _source_platform(source)
+        route = getattr(runner, "_secondary_model_routes", {}).get(platform)
+        if route is None:
+            return reply
+
+        route_info = _format_route_info(route)
+        text = re.sub(
+            r"◆ Model:.*?(?=\n✦ Tip:|\Z)",
+            route_info,
+            str(reply),
+            flags=re.DOTALL,
+        )
+        if isinstance(reply, EphemeralReply):
+            return EphemeralReply(text, getattr(reply, "ttl_seconds", None))
+        return text
+
+    GatewayRunner._resolve_session_agent_runtime = resolve_session_agent_runtime
+    GatewayRunner._handle_reset_command = handle_reset_command
+    GatewayRunner._secondary_model_router_installed = True
+
 BOTS_ENV = "HERMES_SECONDARY_FEISHU_BOTS"
 PLATFORM_NAME = "feishu_secondary"
 APP_ID_ENV = "HERMES_SECONDARY_FEISHU_APP_ID"
@@ -237,6 +386,21 @@ class BotSpec:
             "APP_SECRET", str(extra.get("app_secret") or "")
         ).strip()
         return app_id, app_secret
+
+    def model_route(self) -> ModelRoute | None:
+        provider = self.value("PROVIDER")
+        model = self.value("MODEL")
+        if not provider and not model:
+            return None
+        if not provider or not model:
+            raise ValueError(
+                f"{self.alias} must configure both PROVIDER and MODEL"
+            )
+        if any(char.isspace() for char in provider + model):
+            raise ValueError(
+                f"{self.alias} provider and model IDs cannot contain whitespace"
+            )
+        return ModelRoute(provider=provider, model=model)
 
 
 def load_bot_specs() -> list[BotSpec]:
@@ -331,6 +495,18 @@ class SecondaryFeishuAdapter(FeishuAdapter):
             require_mention=_env_bool(spec, "REQUIRE_MENTION", True),
         )
 
+    async def _extract_message_content(self, message):
+        text, message_type, media_urls, media_types, mentions = (
+            await super()._extract_message_content(message)
+        )
+        return (
+            _normalize_command_text(text),
+            message_type,
+            media_urls,
+            media_types,
+            mentions,
+        )
+
 
 def check_requirements(spec: BotSpec | None = None) -> bool:
     candidates = [spec] if spec else load_bot_specs()
@@ -357,6 +533,16 @@ def register(ctx) -> None:
     _install_multi_client_ws_patch()
     specs = load_bot_specs()
     _install_secondary_notice_filter({spec.platform_name for spec in specs})
+    routes: dict[str, ModelRoute] = {}
+    for spec in specs:
+        try:
+            route = spec.model_route()
+        except ValueError as exc:
+            logger.error("Skipping invalid model route for %s: %s", spec.alias, exc)
+            continue
+        if route is not None:
+            routes[spec.platform_name] = route
+    _install_model_router(routes)
     configured_app_ids: set[str] = set()
     primary_app_id = os.getenv("FEISHU_APP_ID", "").strip()
 

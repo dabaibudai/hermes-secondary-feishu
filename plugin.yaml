@@ -1,5 +1,5 @@
 name: hermes-secondary-feishu
 kind: platform
-version: 2.0.0
-description: Native multi-bot Feishu/Lark chat entries for Hermes Agent with shared memory, skills, tools, and rich progress updates.
+version: 2.1.0
+description: Native multi-bot Feishu/Lark chat entries for Hermes Agent with shared memory and optional per-bot model routing.
 author: Liuhao

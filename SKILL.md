@@ -1,17 +1,19 @@
 ---
 name: hermes-secondary-feishu-installer
-description: Install, configure, verify, or troubleshoot one or more secondary Feishu/Lark chat bots for Hermes while sharing the same memory, skills, tools, model, and primary Feishu business credentials.
+description: Install, configure, verify, or troubleshoot secondary Feishu/Lark chat bots for Hermes, including persistent per-bot model routing without changing the primary conversation model.
 ---
 
 # Hermes Secondary Feishu Installer
 
-Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2, Hermes3, and later bots are independent chat entries and session namespaces. They share the existing Agent identity, memory, skills, tools, working directory, model configuration, and provider quota.
+Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2, Hermes3, and later bots are independent chat entries and session namespaces. They share the existing Agent identity, memory, skills, tools, working directory, provider credentials/quota, and primary Feishu business credentials. Each bot inherits Hermes' global model unless a persistent per-bot route is configured.
 
 ## Invariants
 
 - Never replace or delete the primary `FEISHU_APP_ID` or `FEISHU_APP_SECRET`.
 - Give every bot a unique Feishu/Lark App ID. Reusing one App ID across connections causes conflicts or duplicate replies.
 - Store credentials only in bot-specific `HERMES_SECONDARY_FEISHU_<BOT>_*` variables created by the configuration script.
+- Never use `/model ... --global` to change only a secondary bot. It changes the primary model too.
+- Configure model routes with exact provider and API model IDs, never product or marketing names.
 - Do not patch Hermes core files. This repository is a native Hermes platform plugin.
 - Ask before restarting a live gateway if it may interrupt active work.
 - Never print, echo, quote, summarize, or commit App Secrets.
@@ -35,6 +37,17 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2
    Keep credential transport user-controlled. If credentials are already available to the Agent, use `configure.py --secret-stdin` so the Secret is not placed in shell arguments, and never repeat it in output.
 
    Use only the names the user requested. Run `python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --list` to verify that every bot reports `credentials=ready`. Configure all bots before restarting the Gateway.
+
+   If the user wants a secondary bot to use a different model, first inspect the authenticated provider's current model catalog. Translate the user's product name into the exact API ID, then persist the route:
+
+   ```bash
+   python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py \
+     --set-model hermes2 \
+     --provider PROVIDER_ID \
+     --model MODEL_ID
+   ```
+
+   Confirm with `configure.py --list`. It must print the intended `provider/model` for that bot while Hermes' global `model.default` remains unchanged. A configured route survives `/new` and Gateway restarts. A manual `/model` switch is temporary; `/new` returns the bot to its configured route.
 5. Guide the user through this exact Feishu/Lark developer-console checklist for **every app**:
 
    - enable the **Bot** capability;
@@ -87,7 +100,7 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2
 Run these checks for every configured bot. Report the first failing bot and stage instead of continuing blindly:
 
 1. Send `你好`. Expect one immediate reaction and exactly one answer.
-2. Send `/new`. Expect a fresh session under that bot's platform (`feishu_secondary` for Hermes2, `feishu_hermes3` for Hermes3, and so on).
+2. Send `/new`. Expect a fresh session under that bot's platform (`feishu_secondary` for Hermes2, `feishu_hermes3` for Hermes3, and so on). If a per-bot route is configured, the reset card must show its configured provider/model, not the primary model.
 3. Ask it to read a harmless local text file. Expect visible commentary, tool progress, and one final answer rendered as Markdown or a rich card.
 4. Send one image. Expect Hermes to acknowledge or inspect the image without an unsupported-file error.
 
@@ -98,13 +111,15 @@ Success requires all of the following:
 - visible commentary and tool progress appear during execution;
 - the final answer arrives once, not multiple times;
 - `/new` starts a fresh session;
+- a configured per-bot model is shown after `/new` and appears in the fresh Gateway route log;
+- the primary conversation still reports its original global model;
 - the primary Feishu app remains available to Hermes business tools.
 
 If loading fails, inspect the gateway logs first. If replies are duplicated, check for an older external bridge or another gateway using the same App ID before changing plugin code.
 
 ## Operational Blind Spots
 
-- More bots create more conversations, not separate Agents. Memory, tools, model, provider quota, filesystem, and Gateway availability are shared.
+- More bots create more conversations, not separate Agents. Memory, tools, provider credentials/quota, filesystem, and Gateway availability are shared. Only the selected provider/model route may differ.
 - Concurrent chats can edit the same files or operate the same external account. Ask before destructive or conflicting work; separate working directories when tasks may collide.
 - Every bot expands the access surface. Use separate allowlists or pairing grants and review them when a bot changes owners.
 - Secondary bots are chat-only by default. Their generic home-channel onboarding notice is suppressed; keep cron and cross-platform delivery on the primary bot unless the user explicitly requests otherwise.

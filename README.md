@@ -16,7 +16,7 @@ It uses Hermes' built-in Feishu adapter, so every additional bot gets the same e
 - visible tool progress and long-task updates;
 - native `/new`, `/stop`, pairing, session storage, and interruption behavior.
 
-Each additional app is used only for receiving and replying to chat messages. Bots have independent session namespaces but share the same Agent identity, memory, skills, tools, working directory, model configuration, provider quota, and primary Feishu credentials used by business tools.
+Each additional app is used only for receiving and replying to chat messages. Bots have independent session namespaces while sharing the same Agent identity, memory, skills, tools, working directory, provider credentials/quota, and primary Feishu credentials used by business tools. A bot inherits Hermes' global model unless an optional per-bot model route is configured.
 
 The plugin suppresses Hermes' generic `No home channel is set` notice in secondary chats. Secondary bots are chat-only by default, while cron and cross-platform delivery remain on the primary bot. Use `/sethome` in a secondary chat only when that routing change is intentional.
 
@@ -68,6 +68,26 @@ Remove one bot with:
 python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --remove hermes3
 ```
 
+## Per-bot model routing
+
+Keep the primary Hermes model unchanged while assigning a cheaper or specialized model to one secondary bot:
+
+```bash
+python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py \
+  --set-model hermes2 \
+  --provider kimi-coding \
+  --model kimi-for-coding
+```
+
+Use provider and API model IDs, not product or marketing names. The route is persistent across `/new` and Gateway restarts. A manual `/model` command temporarily overrides it for the current session; `/new` returns that bot to its configured route. Do not use `/model ... --global` for this purpose because it changes the primary and every inheriting bot.
+
+Remove the per-bot route and return to Hermes' global model with:
+
+```bash
+python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py \
+  --clear-model hermes2
+```
+
 ## Optional settings
 
 ```dotenv
@@ -101,6 +121,7 @@ Feishu Apps: Hermes2 / Hermes3 / Hermes4
 Platforms: feishu_secondary / feishu_hermes3 / feishu_hermes4
                   ↓
 Hermes Gateway → independent sessions, shared Agent / memory / skills / tools
+                  ↳ optional persistent provider/model route per bot
                   ↓
 Primary Feishu credentials remain available to Feishu business tools
 ```

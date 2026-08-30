@@ -3,10 +3,12 @@ import os
 import tempfile
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 try:
     from gateway.config import PlatformConfig
+    import gateway.run  # Load dotenv before isolated environment patches.
     import gateway.platforms.feishu as feishu_module
     from gateway.platform_registry import PlatformEntry, platform_registry
     import lark_oapi.ws.client as ws_client_module
@@ -16,6 +18,7 @@ except ModuleNotFoundError as exc:
 from adapter import (
     BOTS_ENV,
     BotSpec,
+    ModelRoute,
     SecondaryFeishuAdapter,
     check_requirements,
     env_prefix_for,
@@ -24,6 +27,9 @@ from adapter import (
     register,
     validate_config,
     _install_multi_client_ws_patch,
+    _install_model_router,
+    _normalize_command_text,
+    _route_runtime,
     _run_isolated_feishu_ws_client,
     _THREAD_LOCAL_LOOP,
     _is_secondary_home_notice,
@@ -55,6 +61,126 @@ class FakeContext:
 
 
 class SecondaryFeishuAdapterTest(unittest.TestCase):
+    def test_unescapes_feishu_rich_post_slash_commands_only(self):
+        self.assertEqual(
+            _normalize_command_text(
+                r"/model kimi\-for\-coding \-\-provider kimi\-coding"
+            ),
+            "/model kimi-for-coding --provider kimi-coding",
+        )
+        self.assertEqual(_normalize_command_text(r"normal \- text"), r"normal \- text")
+
+    def test_per_bot_model_route_is_optional_and_exact(self):
+        spec = make_spec("hermes2")
+        with patch.dict(
+            os.environ,
+            {
+                "HERMES_SECONDARY_FEISHU_HERMES2_PROVIDER": "kimi-coding",
+                "HERMES_SECONDARY_FEISHU_HERMES2_MODEL": "kimi-for-coding",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                spec.model_route(),
+                ModelRoute("kimi-coding", "kimi-for-coding"),
+            )
+
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(spec.model_route())
+
+    def test_route_runtime_uses_hermes_provider_registry(self):
+        route = ModelRoute("example-provider", "example-model")
+        with patch(
+            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            return_value={
+                "provider": "canonical-provider",
+                "api_key": "secret",
+                "base_url": "https://example.invalid/v1",
+                "api_mode": "openai_chat",
+            },
+        ) as resolver:
+            runtime = _route_runtime(route, {"provider": "global"})
+
+        resolver.assert_called_once_with(
+            requested="example-provider",
+            target_model="example-model",
+        )
+        self.assertEqual(runtime["provider"], "canonical-provider")
+        self.assertEqual(runtime["api_mode"], "openai_chat")
+
+    def test_model_router_changes_only_secondary_default_and_survives_reset(self):
+        from gateway.platforms.base import EphemeralReply
+
+        class FakeRunner:
+            def __init__(self):
+                self._session_model_overrides = {}
+
+            def _session_key_for_source(self, source):
+                return f"agent:main:{source.platform.value}:dm:chat"
+
+            def _resolve_session_agent_runtime(
+                self, *, source=None, session_key=None, user_config=None
+            ):
+                key = session_key or self._session_key_for_source(source)
+                override = self._session_model_overrides.get(key)
+                if override:
+                    return override["model"], {"provider": override["provider"]}
+                return "k3", {"provider": "kimi-coding"}
+
+            async def _handle_reset_command(self, event):
+                return EphemeralReply(
+                    "✨ Session reset! Starting fresh.\n\n"
+                    "◆ Model: `k3`\n◆ Provider: kimi-coding\n"
+                    "◆ Context: 1.0M tokens (detected)\n✦ Tip: test"
+                )
+
+        secondary = SimpleNamespace(
+            platform=SimpleNamespace(value="feishu_secondary")
+        )
+        primary = SimpleNamespace(platform=SimpleNamespace(value="feishu"))
+        route = ModelRoute("kimi-coding", "kimi-for-coding")
+
+        with patch("gateway.run.GatewayRunner", FakeRunner), patch(
+            "hermes_cli.runtime_provider.resolve_runtime_provider",
+            return_value={
+                "provider": "kimi-coding",
+                "api_key": "secret",
+                "base_url": "https://api.kimi.com/coding",
+                "api_mode": "anthropic_messages",
+            },
+        ), patch(
+            "adapter._format_route_info",
+            return_value=(
+                "◆ Model: `kimi-for-coding`\n◆ Provider: kimi-coding\n"
+                "◆ Context: 256K tokens (detected)"
+            ),
+        ):
+            _install_model_router({"feishu_secondary": route})
+            runner = FakeRunner()
+            self.assertEqual(
+                runner._resolve_session_agent_runtime(source=secondary)[0],
+                "kimi-for-coding",
+            )
+            self.assertEqual(
+                runner._resolve_session_agent_runtime(source=primary)[0],
+                "k3",
+            )
+
+            key = runner._session_key_for_source(secondary)
+            runner._session_model_overrides[key] = {
+                "model": "temporary-model",
+                "provider": "temporary-provider",
+            }
+            self.assertEqual(
+                runner._resolve_session_agent_runtime(source=secondary)[0],
+                "temporary-model",
+            )
+            runner._session_model_overrides.clear()
+            reply = asyncio.run(
+                runner._handle_reset_command(SimpleNamespace(source=secondary))
+            )
+            self.assertIn("Model: `kimi-for-coding`", reply)
+
     def test_suppresses_only_secondary_home_notice(self):
         platforms = {"feishu_secondary", "feishu_baymax"}
         notice = "📬 No home channel is set for Feishu_Baymax."
