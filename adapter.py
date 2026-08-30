@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
+import threading
 from dataclasses import dataclass, replace
 
 from gateway.config import Platform, PlatformConfig
@@ -17,6 +19,95 @@ from hermes_constants import get_hermes_home
 
 
 logger = logging.getLogger(__name__)
+
+_WS_RUNTIME_LOCK = threading.Lock()
+_WS_THREAD_STATE = threading.local()
+_ORIGINAL_WS_CONNECT = None
+
+
+class _ThreadLocalLoopProxy:
+    """Route the Lark SDK's module-global loop calls to each WS thread."""
+
+    @staticmethod
+    def _current() -> asyncio.AbstractEventLoop:
+        loop = getattr(_WS_THREAD_STATE, "loop", None)
+        return loop if loop is not None else asyncio.get_event_loop()
+
+    def run_until_complete(self, awaitable):
+        return self._current().run_until_complete(awaitable)
+
+    def create_task(self, awaitable):
+        return self._current().create_task(awaitable)
+
+
+_THREAD_LOCAL_LOOP = _ThreadLocalLoopProxy()
+
+
+async def _thread_local_ws_connect(*args, **kwargs):
+    adapter = getattr(_WS_THREAD_STATE, "adapter", None)
+    if adapter is not None:
+        if adapter._ws_ping_interval is not None and "ping_interval" not in kwargs:
+            kwargs["ping_interval"] = adapter._ws_ping_interval
+        if adapter._ws_ping_timeout is not None and "ping_timeout" not in kwargs:
+            kwargs["ping_timeout"] = adapter._ws_ping_timeout
+    if _ORIGINAL_WS_CONNECT is None:
+        raise RuntimeError("Original Lark websocket connector is unavailable")
+    return await _ORIGINAL_WS_CONNECT(*args, **kwargs)
+
+
+def _run_isolated_feishu_ws_client(ws_client, adapter) -> None:
+    """Run one official Lark client without sharing its loop with peers."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    _WS_THREAD_STATE.loop = loop
+    _WS_THREAD_STATE.adapter = adapter
+    adapter._ws_thread_loop = loop
+    original_configure = getattr(ws_client, "_configure", None)
+
+    def configure_with_overrides(conf):
+        if original_configure is None:
+            raise RuntimeError("Lark websocket client has no _configure method")
+        result = original_configure(conf)
+        setattr(ws_client, "_reconnect_nonce", adapter._ws_reconnect_nonce)
+        setattr(ws_client, "_reconnect_interval", adapter._ws_reconnect_interval)
+        if adapter._ws_ping_interval is not None:
+            setattr(ws_client, "_ping_interval", adapter._ws_ping_interval)
+        return result
+
+    if original_configure is not None:
+        setattr(ws_client, "_configure", configure_with_overrides)
+    try:
+        ws_client.start()
+    except Exception:
+        logger.debug("Feishu websocket thread exited", exc_info=True)
+    finally:
+        if original_configure is not None:
+            setattr(ws_client, "_configure", original_configure)
+        pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()
+        adapter._ws_thread_loop = None
+        _WS_THREAD_STATE.__dict__.clear()
+
+
+def _install_multi_client_ws_patch() -> None:
+    """Make the official Lark websocket SDK safe for concurrent bot clients."""
+    global _ORIGINAL_WS_CONNECT
+
+    import gateway.platforms.feishu as feishu_module
+    import lark_oapi.ws.client as ws_client_module
+
+    with _WS_RUNTIME_LOCK:
+        if getattr(feishu_module, "_secondary_multi_client_patch", False):
+            return
+        _ORIGINAL_WS_CONNECT = ws_client_module.websockets.connect
+        ws_client_module.loop = _THREAD_LOCAL_LOOP
+        ws_client_module.websockets.connect = _thread_local_ws_connect
+        feishu_module._run_official_feishu_ws_client = _run_isolated_feishu_ws_client
+        feishu_module._secondary_multi_client_patch = True
 
 BOTS_ENV = "HERMES_SECONDARY_FEISHU_BOTS"
 PLATFORM_NAME = "feishu_secondary"
@@ -225,6 +316,7 @@ def is_connected(config: PlatformConfig, spec: BotSpec | None = None) -> bool:
 
 
 def register(ctx) -> None:
+    _install_multi_client_ws_patch()
     configured_app_ids: set[str] = set()
     primary_app_id = os.getenv("FEISHU_APP_ID", "").strip()
 

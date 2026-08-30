@@ -1,11 +1,15 @@
+import asyncio
 import os
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
 try:
     from gateway.config import PlatformConfig
+    import gateway.platforms.feishu as feishu_module
     from gateway.platform_registry import PlatformEntry, platform_registry
+    import lark_oapi.ws.client as ws_client_module
 except ModuleNotFoundError as exc:
     raise unittest.SkipTest("Hermes runtime is required for adapter tests") from exc
 
@@ -19,6 +23,9 @@ from adapter import (
     platform_name_for,
     register,
     validate_config,
+    _install_multi_client_ws_patch,
+    _run_isolated_feishu_ws_client,
+    _THREAD_LOCAL_LOOP,
 )
 
 
@@ -47,6 +54,54 @@ class FakeContext:
 
 
 class SecondaryFeishuAdapterTest(unittest.TestCase):
+    def test_installs_thread_isolated_lark_runtime(self):
+        _install_multi_client_ws_patch()
+        self.assertIs(
+            feishu_module._run_official_feishu_ws_client,
+            _run_isolated_feishu_ws_client,
+        )
+        self.assertIs(ws_client_module.loop, _THREAD_LOCAL_LOOP)
+
+    def test_two_ws_threads_keep_distinct_event_loops(self):
+        barrier = threading.Barrier(2)
+        loop_ids = []
+        errors = []
+
+        class FakeAdapter:
+            _ws_ping_interval = None
+            _ws_ping_timeout = None
+            _ws_reconnect_nonce = 0
+            _ws_reconnect_interval = 1
+            _ws_thread_loop = None
+
+        class FakeClient:
+            def start(self):
+                async def current_loop_id():
+                    return id(asyncio.get_running_loop())
+
+                first = _THREAD_LOCAL_LOOP.run_until_complete(current_loop_id())
+                barrier.wait(timeout=2)
+                second = _THREAD_LOCAL_LOOP.run_until_complete(current_loop_id())
+                if first != second:
+                    raise AssertionError("Client switched event loops")
+                loop_ids.append(first)
+
+        def run_client():
+            try:
+                _run_isolated_feishu_ws_client(FakeClient(), FakeAdapter())
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=run_client) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=3)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(loop_ids), 2)
+        self.assertEqual(len(set(loop_ids)), 2)
+
     def test_multiple_bots_have_isolated_credentials_platforms_and_cache(self):
         with tempfile.TemporaryDirectory() as home, patch.dict(
             os.environ,
