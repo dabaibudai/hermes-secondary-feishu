@@ -42,15 +42,7 @@ npx skills add dabaibudai/hermes-secondary-feishu
 
 Then ask your Agent to install or troubleshoot a second Feishu bot for Hermes. The Skill guides the operation; the Hermes plugin still provides the runtime capability.
 
-For a remote Hermes host, the installer Skill can accept the Secret once in a private chat and pass it to the configuration process over stdin. The Secret is not placed in shell arguments or echoed by the script, but the original Feishu message remains in chat history; delete that message and start `/new` after configuration. Never send a Secret in a group chat.
-
-The corresponding non-interactive command is:
-
-```bash
-python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2 --app-id cli_xxx --domain feishu --allowed-users '' --secret-stdin
-```
-
-For the strongest secrecy, use the hidden terminal prompt instead:
+Do not send App Secrets through a Hermes chat. Inbound chat text can be retained by Feishu history, Hermes sessions, and local Gateway logs. Use the hidden terminal prompt on the host or over SSH:
 
 ```bash
 python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2
@@ -125,6 +117,12 @@ Unlike an external HTTP bridge, this plugin runs inside Hermes Gateway and requi
 ```bash
 hermes plugins remove hermes-secondary-feishu
 hermes gateway restart
+```
+
+When installation is controlled from the primary Hermes chat, do not run `hermes gateway restart` directly. Schedule the detached helper as the final tool call, then send the checkpoint response immediately:
+
+```bash
+python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/deferred_restart.py
 ```
 
 ## License

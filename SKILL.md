@@ -14,7 +14,7 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2
 - Store credentials only in bot-specific `HERMES_SECONDARY_FEISHU_<BOT>_*` variables created by the configuration script.
 - Do not patch Hermes core files. This repository is a native Hermes platform plugin.
 - Ask before restarting a live gateway if it may interrupt active work.
-- Never print, echo, quote, summarize, or commit App Secrets.
+- Never print, echo, quote, summarize, or commit App Secrets. Hermes inbound chat text is written to local gateway and agent logs, so never ask the user to send an App Secret in chat.
 
 ## Install
 
@@ -26,17 +26,7 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2
    hermes plugins install dabaibudai/hermes-secondary-feishu --enable </dev/null
    ```
 
-4. When Hermes is running on a remote machine, allow the user to submit the App ID and App Secret once in the **private chat with the primary Hermes bot**. Before they send it, warn that Feishu retains chat history and tell them not to use a group chat. Never repeat the Secret in a reply, progress message, command argument, or tool summary.
-
-   Start the configuration command with the non-secret fields only:
-
-   ```bash
-   python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2 --app-id cli_xxx --domain feishu --allowed-users '' --secret-stdin
-   ```
-
-   Send the Secret only to that running process through stdin. Do not place it after `echo`, in an environment assignment, in a temporary file, or directly in the shell command. After saving, report only `credentials=ready`, ask the user to delete their Secret message from Feishu, and recommend `/new` before continuing.
-
-   If the user does not accept chat-history exposure, fall back to the hidden terminal flow:
+4. Never request an App Secret in chat. Feishu history, Hermes sessions, and Hermes logs can retain inbound text even when the Secret is not echoed in a command. Ask the user to enter it through the hidden prompt on the Hermes host or an SSH terminal:
 
    ```bash
    python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/configure.py --name hermes2
@@ -65,14 +55,22 @@ Install the native `dabaibudai/hermes-secondary-feishu` platform plugin. Hermes2
 
 8. Restart the gateway only after the credentials and developer-console checklist are complete.
 
-   All Feishu bots share the same Hermes Gateway. Restarting it briefly disconnects every bot, including the primary bot currently guiding installation; installing files or editing configuration alone does not cause this interruption. Before restarting:
+   All Feishu bots share the same Hermes Gateway. Calling `hermes gateway restart` from the live Hermes conversation creates a self-wait: Gateway waits for the current agent to finish while that agent waits for Gateway to restart. Never call it directly from the conversation.
+
+   Instead, schedule the plugin's external restart helper as the **last tool call**:
+
+   ```bash
+   python3 ~/.hermes/plugins/hermes-secondary-feishu/scripts/deferred_restart.py
+   ```
+
+   The helper waits until Gateway logs that the current response is being sent, then restarts from a detached process. Immediately after scheduling, send the final checkpoint response and run no more tools. Before scheduling:
 
    - tell the user that Hermes1 will be offline for several seconds;
    - record which installation steps are complete and that acceptance is the next stage;
-   - ask for explicit confirmation to restart;
+   - ask for explicit confirmation to schedule the restart;
    - tell the user to send `继续验收` after Hermes1 reconnects.
 
-   When the user sends `继续验收`, do not repeat installation or request credentials again. Check the plugin and gateway status, then continue from **Acceptance**.
+   When the user sends `继续验收`, do not repeat installation or request credentials again. Check the plugin and gateway status, then continue from **Acceptance**. If no reconnect occurs within three minutes, the helper cancels the restart rather than killing an unresolved session.
 
    Verify with:
 

@@ -13,6 +13,7 @@ REQUIRED_FILES = {
     "README.md",
     "LICENSE",
     "scripts/configure.py",
+    "scripts/deferred_restart.py",
 }
 
 
